@@ -64,6 +64,7 @@ features = ["extension-module"]
 module-name = "polars_janitor._rust"
 python-source = "src"
 include = [
+  { path = "benchmarks/**/*", format = "sdist" },
   { path = "Cargo.lock", format = "sdist" },
   { path = "docs/**/*", format = "sdist" },
   { path = "examples/**/*", format = "sdist" },

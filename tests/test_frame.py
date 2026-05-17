@@ -32,6 +32,48 @@ def test_clean_names_supports_lazyframe() -> None:
     assert result.columns == ["customer_id", "order_id"]
 
 
+def test_find_header_and_row_to_names_clean_messy_spreadsheet_rows() -> None:
+    """A discovered header row can be promoted to cleaned column names."""
+    df = pl.DataFrame(
+        {
+            "column_1": [None, "Customer ID", "1", "2"],
+            "column_2": ["notes", "Order Total", "10", "20"],
+            "column_3": ["", "Order Date", "2026-01-01", "2026-01-02"],
+        }
+    )
+
+    header = pj.find_header(df)
+    result = pj.row_to_names(df, header)
+
+    assert header == 1
+    assert result.columns == ["customer_id", "order_total", "order_date"]
+    assert result.to_dict(as_series=False) == {
+        "customer_id": ["1", "2"],
+        "order_total": ["10", "20"],
+        "order_date": ["2026-01-01", "2026-01-02"],
+    }
+
+
+def test_find_header_can_search_for_value_in_named_column() -> None:
+    """Header discovery can target a specific messy-spreadsheet marker."""
+    df = pl.DataFrame(
+        {
+            "left": [None, "ignore", "wrong"],
+            "right": ["skip", "Header", "Header"],
+        }
+    )
+
+    assert pj.find_header(df, value="Header", column="right") == 1
+
+
+def test_row_to_names_rejects_lazyframe() -> None:
+    """Promoting a row to names is data-dependent, so lazy support would be dishonest."""
+    df = pl.DataFrame({"a": ["name", "value"]})
+
+    with pytest.raises(NotImplementedError, match=r"row_to_names\(\) is data-dependent"):
+        pj.row_to_names(df.lazy())
+
+
 def test_remove_empty_rows_cols_and_both() -> None:
     """Rows and columns that are entirely null can be removed independently."""
     df = pl.DataFrame(
@@ -134,3 +176,29 @@ def test_get_dupes_only_returns_members_of_duplicate_groups(keys: list[int]) -> 
     for row in result.iter_rows(named=True):
         assert counts[row["key"]] == row["duplicate_count"]
         assert row["duplicate_count"] > 1
+
+
+def test_compare_df_cols_reports_schema_differences_for_eager_and_lazy_frames() -> None:
+    """Schema comparison should work without collecting lazy frames."""
+    left = pl.DataFrame({"id": [1], "name": ["a"]})
+    right = pl.DataFrame({"id": [1], "amount": [10.0]})
+
+    result = pj.compare_df_cols({"left": left, "right": right.lazy()})
+
+    assert result.to_dict(as_series=False) == {
+        "column_name": ["id", "name", "amount"],
+        "left": ["Int64", "String", None],
+        "right": ["Int64", None, "Float64"],
+    }
+    assert not pj.compare_df_cols_same({"left": left, "right": right.lazy()})
+
+
+def test_compare_df_cols_can_filter_to_matching_columns() -> None:
+    """The match/mismatch filters use present-and-same dtype semantics."""
+    left = pl.DataFrame({"id": [1], "name": ["a"]})
+    right = pl.DataFrame({"id": [2], "name": ["b"]})
+
+    result = pj.compare_df_cols([left, right], names=["left", "right"], return_="match")
+
+    assert result["column_name"].to_list() == ["id", "name"]
+    assert pj.compare_df_cols_same([left, right], names=["left", "right"])
