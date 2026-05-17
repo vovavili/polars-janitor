@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -60,6 +61,10 @@ fn parse_case(case: &str) -> Result<CaseStyle, NameError> {
 }
 
 fn clean_one(name: &str, case: CaseStyle) -> String {
+    if case == CaseStyle::Snake {
+        return clean_one_snake(name);
+    }
+
     let tokens = tokens(name);
     let tokens = if tokens.is_empty() {
         vec!["x".to_string()]
@@ -70,12 +75,46 @@ fn clean_one(name: &str, case: CaseStyle) -> String {
 }
 
 fn tokens(name: &str) -> Vec<String> {
-    let translated = translate_common_symbols_and_letters(name.trim());
-    let normalized = translated
-        .nfkd()
-        .filter(|character| !is_combining_mark(*character))
-        .collect::<String>();
-    tokenize_ascii(&normalized)
+    let prepared = prepare_name(name);
+    tokenize_ascii(&prepared)
+}
+
+fn clean_one_snake(name: &str) -> String {
+    let prepared = prepare_name(name);
+    let mut cleaned = tokenize_ascii_to_snake(&prepared);
+    if cleaned.is_empty() {
+        return String::from("x");
+    }
+    if cleaned.starts_with(|character: char| character.is_ascii_digit()) {
+        let mut prefixed = String::with_capacity(cleaned.len() + 2);
+        prefixed.push_str("x_");
+        prefixed.push_str(&cleaned);
+        cleaned = prefixed;
+    }
+    cleaned
+}
+
+fn prepare_name(name: &str) -> Cow<'_, str> {
+    let trimmed = name.trim();
+    if !trimmed.chars().any(needs_translation_or_normalization) {
+        return Cow::Borrowed(trimmed);
+    }
+
+    let translated = translate_common_symbols_and_letters(trimmed);
+    if translated.is_ascii() {
+        Cow::Owned(translated)
+    } else {
+        Cow::Owned(
+            translated
+                .nfkd()
+                .filter(|character| !is_combining_mark(*character))
+                .collect::<String>(),
+        )
+    }
+}
+
+fn needs_translation_or_normalization(character: char) -> bool {
+    !character.is_ascii() || matches!(character, '%' | '#' | '&' | '@' | '+')
 }
 
 fn translate_common_symbols_and_letters(value: &str) -> String {
@@ -130,6 +169,40 @@ fn tokenize_ascii(value: &str) -> Vec<String> {
     }
 
     push_current(&mut output, &mut current);
+    output
+}
+
+fn tokenize_ascii_to_snake(value: &str) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    let mut output = String::with_capacity(value.len());
+    let mut current_token_has_chars = false;
+    let mut output_has_token = false;
+
+    for (index, character) in chars.iter().copied().enumerate() {
+        if !character.is_ascii_alphanumeric() {
+            current_token_has_chars = false;
+            continue;
+        }
+
+        if current_token_has_chars {
+            let previous = chars[index - 1];
+            let next = chars.get(index + 1).copied();
+            if is_token_boundary(previous, character, next) {
+                current_token_has_chars = false;
+            }
+        }
+
+        if !current_token_has_chars {
+            if output_has_token {
+                output.push('_');
+            }
+            output_has_token = true;
+            current_token_has_chars = true;
+        }
+
+        output.push(character.to_ascii_lowercase());
+    }
+
     output
 }
 
@@ -188,17 +261,21 @@ fn ensure_identifier_start(name: &str, case: CaseStyle) -> String {
     if !name.starts_with(|character: char| character.is_ascii_digit()) {
         return name.to_string();
     }
-    match case {
-        CaseStyle::Constant => format!("X_{name}"),
-        CaseStyle::Pascal => format!("X{name}"),
-        CaseStyle::Camel => format!("x{name}"),
-        CaseStyle::Snake => format!("x_{name}"),
-    }
+    let prefix = match case {
+        CaseStyle::Constant => "X_",
+        CaseStyle::Pascal => "X",
+        CaseStyle::Camel => "x",
+        CaseStyle::Snake => "x_",
+    };
+    let mut prefixed = String::with_capacity(prefix.len() + name.len());
+    prefixed.push_str(prefix);
+    prefixed.push_str(name);
+    prefixed
 }
 
 fn dedupe(names: &[String], case: CaseStyle) -> Vec<String> {
-    let mut used = HashSet::new();
-    let mut next_suffix_by_base: HashMap<&str, usize> = HashMap::new();
+    let mut used = HashSet::with_capacity(names.len());
+    let mut next_suffix_by_base: HashMap<&str, usize> = HashMap::with_capacity(names.len());
     let mut output = Vec::with_capacity(names.len());
 
     for name in names {
@@ -219,10 +296,16 @@ fn dedupe(names: &[String], case: CaseStyle) -> Vec<String> {
 }
 
 fn with_suffix(name: &str, suffix: usize, case: CaseStyle) -> String {
-    match case {
-        CaseStyle::Camel | CaseStyle::Pascal => format!("{name}{suffix}"),
-        CaseStyle::Snake | CaseStyle::Constant => format!("{name}_{suffix}"),
-    }
+    let suffix = suffix.to_string();
+    let separator = match case {
+        CaseStyle::Camel | CaseStyle::Pascal => "",
+        CaseStyle::Snake | CaseStyle::Constant => "_",
+    };
+    let mut suffixed = String::with_capacity(name.len() + separator.len() + suffix.len());
+    suffixed.push_str(name);
+    suffixed.push_str(separator);
+    suffixed.push_str(&suffix);
+    suffixed
 }
 
 #[cfg(test)]

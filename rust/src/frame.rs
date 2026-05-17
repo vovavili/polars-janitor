@@ -161,7 +161,31 @@ pub fn compare_df_cols_same_schemas(schemas: &[FrameSchema]) -> JanitorResult<bo
         .all(|column| schema_column_matches(schemas, column)))
 }
 
-fn rename_columns_df(df: DataFrame, cleaned: Vec<String>) -> JanitorResult<DataFrame> {
+fn rename_columns_df(mut df: DataFrame, cleaned: Vec<String>) -> JanitorResult<DataFrame> {
+    let original = dataframe_column_names(&df);
+    if can_use_rename_many(&original, &cleaned) {
+        df.rename_many(
+            original
+                .iter()
+                .zip(&cleaned)
+                .filter(|(from, to)| from.as_str() != to.as_str())
+                .map(|(from, to)| (from.as_str(), to.as_str().into())),
+        )?;
+        return Ok(df);
+    }
+
+    rebuild_with_renamed_columns(df, cleaned)
+}
+
+fn can_use_rename_many(original: &[String], cleaned: &[String]) -> bool {
+    let original_names = original.iter().map(String::as_str).collect::<HashSet<_>>();
+    original
+        .iter()
+        .zip(cleaned)
+        .all(|(from, to)| from == to || !original_names.contains(to.as_str()))
+}
+
+fn rebuild_with_renamed_columns(df: DataFrame, cleaned: Vec<String>) -> JanitorResult<DataFrame> {
     let height = df.height();
     let columns = df
         .columns()
@@ -676,6 +700,37 @@ mod tests {
             )
             .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn rename_columns_falls_back_when_targets_exist_in_original_schema() {
+        let df = df!("a" => [1, 2], "b" => [3, 4]).unwrap();
+
+        let result = rename_columns_df(df, vec![String::from("b"), String::from("a")]).unwrap();
+
+        assert_eq!(dataframe_column_names(&result), ["b", "a"]);
+        assert_eq!(
+            result
+                .column("b")
+                .unwrap()
+                .as_materialized_series()
+                .i32()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_eq!(
+            result
+                .column("a")
+                .unwrap()
+                .as_materialized_series()
+                .i32()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            [3, 4]
         );
     }
 

@@ -32,6 +32,16 @@ def test_clean_names_supports_lazyframe() -> None:
     assert result.columns == ["customer_id", "order_id"]
 
 
+def test_clean_names_handles_targets_that_exist_in_original_schema() -> None:
+    """Public clean_names can rename into names that existed before cleaning."""
+    df = pl.DataFrame({"a b": [1, 2], "a_b": [3, 4]})
+
+    result = pj.clean_names(df)
+
+    assert result.columns == ["a_b", "a_b_2"]
+    assert result.to_dict(as_series=False) == {"a_b": [1, 2], "a_b_2": [3, 4]}
+
+
 def test_find_header_and_row_to_names_clean_messy_spreadsheet_rows() -> None:
     """A discovered header row can be promoted to cleaned column names."""
     df = pl.DataFrame(

@@ -10,6 +10,8 @@ Polars already has a strong API. Most cleanup work should stay plain Polars.
 
 The rough spots this package tries to smooth out are the ones that show up around messy inputs: awkward column names from CSVs and spreadsheets, header rows hiding inside spreadsheet data, empty rows, all-null columns, constant columns, duplicate records by key, and quick schema checks before you combine frames. Those are janitorial jobs. They are not glamorous, but they happen often enough to deserve a small, sharp tool.
 
+`polars-janitor` owes a lot to R's janitor and pyjanitor. Those projects made the case that small cleanup helpers are worth having. This package borrows that spirit, but keeps the API narrow and Polars-shaped.
+
 The package does not register a dataframe namespace. Import it next to Polars:
 
 ```python
@@ -319,21 +321,21 @@ LazyFrame support is deliberately conservative. `clean_names`, `remove_empty(...
 
 The package supports Python Polars `1.29.0` and newer. Compatibility tests run against that lower bound and the current lockfile version.
 
-The project favors broad Python Polars compatibility over direct Rust deserialization of Python lazy plans. Eager frames cross through `pyo3-polars`; lazy frames keep their plans in Python Polars, with Rust deciding what public Polars plan to build.
+The project favors broad Python Polars compatibility over direct Rust deserialization of Python lazy plans. Most eager frame helpers cross through `pyo3-polars`; lazy frames keep their plans in Python Polars, with Rust deciding what public Polars plan to build. `clean_names` is a little different: Rust cleans the names, then Polars' public `rename` API applies them.
 
 The compiled extension is CPython-version-specific. If `import polars_janitor` fails after changing Python versions, rebuild with `maturin develop --release` or reinstall from the wheel for that interpreter.
 
 ## Benchmarks
 
-These are local medians from this Windows x64 machine using CPython 3.13.5, Polars 1.40.1, pyjanitor 0.32.23 with pandas 3.0.3, and R 4.6.0 with janitor 2.2.1. Setup is outside the timed loop. Treat them as directional, not as a universal performance claim.
+These are local medians from this Windows x64 machine using CPython 3.13.5, Polars 1.40.1, pyjanitor 0.32.23 with pandas 3.0.3, and R 4.6.0 with janitor 2.2.1. Setup is outside the timed loop. Treat them as directional, not as a universal performance claim or a dunk contest.
 
 The R comparison uses base R `data.frame`s because janitor is a data.frame/tibble package. pyjanitor has Polars methods for `clean_names` and `row_to_names`, so those are shown separately. Its `compare_df_cols` helper is pandas-only in the tested version.
 
 | Task | Size | polars-janitor | pyjanitor/Polars | pyjanitor/pandas | R janitor |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| clean_names | 10,000 columns | 45.49 ms | 139.01 ms | 36.94 ms | 5690.00 ms |
-| compare_df_cols | 5,000 columns | 14.47 ms | n/a | 384.17 ms | 80.00 ms |
-| row_to_names + clean_names | 2,000 columns | 8.78 ms | 32.13 ms | 44.04 ms | 970.00 ms |
+| clean_names | 10,000 columns | 14.25 ms | 159.68 ms | 38.27 ms | 5030.00 ms |
+| compare_df_cols | 5,000 columns | 15.53 ms | n/a | 277.58 ms | 70.00 ms |
+| row_to_names + clean_names | 2,000 columns | 8.39 ms | 32.45 ms | 44.29 ms | 950.00 ms |
 
 Run the same benchmark from a checkout:
 
@@ -345,7 +347,7 @@ If R is installed and the `janitor` package is available to that R installation,
 
 ## Rust implementation
 
-The public package is Python, but the implementation is Rust.
+The public package is Python. The cleanup logic lives in Rust, with a thin Python layer where using Polars' own public API is faster or more compatible.
 
 The Rust code is split into three modules:
 
