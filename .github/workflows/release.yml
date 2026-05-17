@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64
+          - aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: matrix.target == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.11.5
+          target: ${{ matrix.target }}
+          manylinux: "2014"
+          args: >-
+            --release
+            --locked
+            --compatibility pypi
+            --out dist
+            -i python3.10
+            -i python3.11
+            -i python3.12
+            -i python3.13
+          sccache: "true"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+
+  windows:
+    name: Windows x64 / Python ${{ matrix.python-version }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.11.5
+          target: x64
+          args: >-
+            --release
+            --locked
+            --compatibility pypi
+            --out dist
+            -i python
+          sccache: "true"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.python-version }}
+          path: dist
+
+  macos:
+    name: macOS ${{ matrix.platform.target }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
+        platform:
+          - os: macos-13
+            target: x86_64
+          - os: macos-latest
+            target: aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.11.5
+          target: ${{ matrix.platform.target }}
+          args: >-
+            --release
+            --locked
+            --compatibility pypi
+            --out dist
+            -i python
+          sccache: "true"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.platform.target }}-${{ matrix.python-version }}
+          path: dist
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          maturin-version: v1.11.5
+          args: --locked --out dist
+          sccache: "true"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+  artifact-check:
+    name: Artifact check
+    needs:
+      - linux
+      - windows
+      - macos
+      - sdist
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Check artifact matrix and sdist contents
+        run: python scripts/check_release_artifacts.py dist
+
+      - name: Install artifact in a clean environment
+        run: |
+          python -m venv .smoke
+          .smoke/bin/python -m pip install --upgrade pip
+          .smoke/bin/python -m pip install --find-links dist polars-janitor==0.1.0
+          .smoke/bin/python scripts/smoke_public_api.py
+
+  publish:
+    name: Publish to PyPI
+    needs: artifact-check
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

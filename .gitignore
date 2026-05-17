@@ -1,0 +1,14 @@
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+.venv/
+proptest-regressions/
+build/
+dist/
+target/
+__pycache__/
+*.egg-info/
+*.pdb
+*.pyd
+*.so
+*.dylib

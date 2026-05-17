@@ -1,0 +1,21 @@
+[package]
+name = "polars-janitor-rust"
+version = "0.1.0"
+edition = "2021"
+description = "Small janitorial helpers for Polars dataframes."
+repository = "https://github.com/VovaVili/polars-janitor"
+license = "MIT"
+
+[lib]
+name = "polars_janitor_rust"
+crate-type = ["cdylib"]
+path = "rust/src/lib.rs"
+
+[dependencies]
+polars = { version = "0.53.0", default-features = false, features = ["lazy"] }
+pyo3 = { version = "0.27.1", features = ["extension-module"] }
+pyo3-polars = { version = "0.26.0", features = ["lazy"] }
+unicode-normalization = "0.1.25"
+
+[dev-dependencies]
+proptest = "1"
