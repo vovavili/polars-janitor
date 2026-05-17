@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.machinery
-import sys
+import sysconfig
 
 import polars as pl
 import pytest
@@ -19,7 +19,10 @@ def test_rust_extension_matches_active_cpython_interpreter() -> None:
 
     assert extension_path
     assert any(extension_path.endswith(suffix) for suffix in importlib.machinery.EXTENSION_SUFFIXES)
-    assert f"cp{sys.version_info.major}{sys.version_info.minor}" in extension_path
+
+    expected_suffix = sysconfig.get_config_var("EXT_SUFFIX")
+    assert isinstance(expected_suffix, str)
+    assert extension_path.endswith(expected_suffix)
 
 
 def test_lazy_helpers_build_public_polars_plans() -> None:
