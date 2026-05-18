@@ -1,8 +1,8 @@
-<div align="center">
+<p align="center">
   <img src="docs/assets/logo.png" alt="polars-janitor logo" width="140">
-</div>
+</p>
 
-# polars-janitor
+<h1 align="center">polars-janitor</h1>
 
 Small janitorial helpers for Polars dataframes.
 
